@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.InsertDriveFile
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -44,6 +45,7 @@ import java.io.File
 fun ArtifactsDrawerContent(
     artifacts: List<ArtifactSnapshot>,
     onClose: () -> Unit,
+    onProceedPlan: ((prompt: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -193,6 +195,10 @@ fun ArtifactsDrawerContent(
                                 coroutineScope = coroutineScope,
                                 snackbarHostState = snackbarHostState
                             )
+                        },
+                        onProceed = { prompt ->
+                            onClose()
+                            onProceedPlan?.invoke(prompt)
                         }
                     )
                 }
@@ -215,6 +221,7 @@ private fun ArtifactCardItem(
     artifact: ArtifactSnapshot,
     onOpen: () -> Unit,
     onDownload: () -> Unit,
+    onProceed: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isImage = isImageArtifact(artifact)
@@ -357,6 +364,47 @@ private fun ArtifactCardItem(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(8.dp)
                     )
+                }
+            }
+
+            // Interactive Plan Execution Action
+            if (artifact.requestFeedback || isPlan) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = ClaudeTerracotta.copy(alpha = 0.12f),
+                        border = BorderStroke(0.6.dp, ClaudeTerracotta.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    val target = artifact.name.ifBlank { artifact.absoluteUri.substringAfterLast('/') }
+                                    onProceed("Proceed with the implementation plan in $target. Execute the next steps sequentially and verify.")
+                                }
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                tint = ClaudeTerracotta,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Proceed with Plan",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ClaudeTerracotta
+                            )
+                        }
+                    }
                 }
             }
         }

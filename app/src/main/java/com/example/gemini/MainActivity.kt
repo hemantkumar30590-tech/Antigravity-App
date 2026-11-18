@@ -25,6 +25,7 @@ import com.example.gemini.ui.browser.BrowserScreen
 import com.example.gemini.ui.chat.ChatViewModel
 import com.example.gemini.ui.chat.ChatViewModelHolder
 import com.example.gemini.ui.ide.IdeScreen
+import com.example.gemini.ui.desktop.DesktopWorkspaceLayout
 
 enum class AppViewMode {
     CHAT,
@@ -294,10 +295,102 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                        val screenWidthDp = configuration.screenWidthDp
+                        val isWideScreen = screenWidthDp >= 680
+                        var isDesktopSplitMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(isWideScreen) }
+                        var leftPaneMode by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(AppViewMode.IDE) }
+
                         CompositionLocalProvider(
                             com.example.gemini.ui.components.LocalAppFocusCoordinator provides focusCoordinator
                         ) {
                             Box(modifier = Modifier.fillMaxSize()) {
+                                if (isDesktopSplitMode) {
+                                    DesktopWorkspaceLayout(
+                                        leftPaneMode = leftPaneMode,
+                                        onSelectLeftPaneMode = { leftPaneMode = it },
+                                        onToggleSplitMode = { isDesktopSplitMode = false },
+                                        leftContent = { mode ->
+                                            when (mode) {
+                                                AppViewMode.IDE -> {
+                                                    IdeScreen(
+                                                        viewModel = chatViewModel,
+                                                        isVisible = true,
+                                                        onNavigateToChat = {},
+                                                        onExecuteRunCommand = {},
+                                                        onNavigateToTerminal = { leftPaneMode = AppViewMode.TERMINAL },
+                                                        onNavigateToBrowser = { leftPaneMode = AppViewMode.BROWSER }
+                                                    )
+                                                }
+                                                AppViewMode.TERMINAL -> {
+                                                    com.example.gemini.ui.components.LocalTerminalContent(
+                                                        onClose = { leftPaneMode = AppViewMode.IDE }
+                                                    )
+                                                }
+                                                AppViewMode.BROWSER -> {
+                                                    BrowserScreen(
+                                                        isVisible = true,
+                                                        onClose = { leftPaneMode = AppViewMode.IDE }
+                                                    )
+                                                }
+                                                AppViewMode.FILES -> {
+                                                    com.example.gemini.ui.files.FileExplorer(
+                                                        stateKey = "screen_desktop_split",
+                                                        allowPhoneTab = true,
+                                                        isVisible = true,
+                                                        onClose = { leftPaneMode = AppViewMode.IDE },
+                                                        onOpenedInIde = { leftPaneMode = AppViewMode.IDE },
+                                                        onOpenFolderInIde = { folder ->
+                                                            com.example.gemini.data.files.IdeFileLauncher.openFolderAsProject(folder)
+                                                            chatViewModel.onProjectChanged(folder)
+                                                            leftPaneMode = AppViewMode.IDE
+                                                        },
+                                                        onProjectCreated = { proj ->
+                                                            com.example.gemini.data.daemon.TermuxDaemonManager.setActiveProject(proj)
+                                                            chatViewModel.onProjectChanged(proj.path)
+                                                            leftPaneMode = AppViewMode.IDE
+                                                        }
+                                                    )
+                                                }
+                                                AppViewMode.NOTES -> {
+                                                    com.example.gemini.ui.notes.NotesScreen(
+                                                        isVisible = true,
+                                                        onClose = { leftPaneMode = AppViewMode.IDE }
+                                                    )
+                                                }
+                                                AppViewMode.RUN -> {
+                                                    com.example.gemini.ui.run.RunScreen(
+                                                        isVisible = true,
+                                                        onClose = { leftPaneMode = AppViewMode.IDE },
+                                                        onSendToChat = {}
+                                                    )
+                                                }
+                                                else -> {
+                                                    IdeScreen(
+                                                        viewModel = chatViewModel,
+                                                        isVisible = true,
+                                                        onNavigateToChat = {},
+                                                        onExecuteRunCommand = {},
+                                                        onNavigateToTerminal = { leftPaneMode = AppViewMode.TERMINAL },
+                                                        onNavigateToBrowser = { leftPaneMode = AppViewMode.BROWSER }
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        rightContent = {
+                                            ChatScreen(
+                                                viewModel = chatViewModel,
+                                                onNavigateToIde = { leftPaneMode = AppViewMode.IDE },
+                                                onNavigateToTerminal = { leftPaneMode = AppViewMode.TERMINAL },
+                                                onNavigateToBrowser = { leftPaneMode = AppViewMode.BROWSER },
+                                                onNavigateToNotes = { leftPaneMode = AppViewMode.NOTES },
+                                                onNavigateToFiles = { leftPaneMode = AppViewMode.FILES },
+                                                isDesktopSplit = true,
+                                                onToggleDesktopSplit = { isDesktopSplitMode = false }
+                                            )
+                                        }
+                                    )
+                                } else {
                                 // Persistent Chat Screen (Never destroyed on toggle)
                                 Box(
                                     modifier = Modifier
@@ -329,7 +422,9 @@ class MainActivity : ComponentActivity() {
                                         onNavigateToFiles = {
                                             previousViewMode = currentViewMode
                                             currentViewMode = AppViewMode.FILES
-                                        }
+                                        },
+                                        isDesktopSplit = false,
+                                        onToggleDesktopSplit = { isDesktopSplitMode = true }
                                     )
                                 }
 
@@ -502,6 +597,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
+                                }
 
                                 // Floating App Switcher Across Whole App (always on; renders on top of Chat, IDE, Terminal, Browser)
                                 // Its Terminal needs a shell: SSH, server mode, or the local Linux tools (turned on here when
@@ -539,36 +635,66 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                                 com.example.gemini.ui.components.FloatingSwitcherWidget(
-                                    currentViewMode = currentViewMode,
+                                    currentViewMode = if (isDesktopSplitMode) leftPaneMode else currentViewMode,
                                     orientation = floatingSwitcherOrientation,
                                     items = floatingSwitcherItems,
                                     autoCollapseTimeoutSec = floatingSwitcherAutoCollapseSec,
                                     savedPosXRatio = floatingSwitcherPosX,
                                     savedPosYRatio = floatingSwitcherPosY,
                                     onNavigateToChat = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.CHAT
+                                        if (isDesktopSplitMode) {
+                                            // Chat is always open on the right pane in Desktop Split Mode
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.CHAT
+                                        }
                                     },
                                     onNavigateToIde = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.IDE
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.IDE
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.IDE
+                                        }
                                     },
                                     onNavigateToBrowser = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.BROWSER
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.BROWSER
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.BROWSER
+                                        }
                                     },
-                                    onNavigateToTerminal = openTerminalFromSwitcher,
+                                    onNavigateToTerminal = {
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.TERMINAL
+                                        } else {
+                                            openTerminalFromSwitcher()
+                                        }
+                                    },
                                     onNavigateToNotes = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.NOTES
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.NOTES
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.NOTES
+                                        }
                                     },
                                     onNavigateToFiles = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.FILES
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.FILES
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.FILES
+                                        }
                                     },
                                     onNavigateToRun = {
-                                        previousViewMode = currentViewMode
-                                        currentViewMode = AppViewMode.RUN
+                                        if (isDesktopSplitMode) {
+                                            leftPaneMode = AppViewMode.RUN
+                                        } else {
+                                            previousViewMode = currentViewMode
+                                            currentViewMode = AppViewMode.RUN
+                                        }
                                     },
                                     onNavigateBack = {
                                         val target = switcherBackTarget

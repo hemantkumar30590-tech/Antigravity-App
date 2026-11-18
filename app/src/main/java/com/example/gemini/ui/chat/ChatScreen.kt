@@ -140,7 +140,9 @@ fun ChatScreen(
     onNavigateToBrowser: () -> Unit = {},
     // null where that screen doesn't exist (the floating chat window): its header icon is then hidden
     onNavigateToNotes: (() -> Unit)? = null,
-    onNavigateToFiles: (() -> Unit)? = null
+    onNavigateToFiles: (() -> Unit)? = null,
+    isDesktopSplit: Boolean = false,
+    onToggleDesktopSplit: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -1911,6 +1913,16 @@ fun ChatScreen(
                         }
                     },
                     actions = {
+                        // Desktop Split-Screen Toggle (Laptop / DeX Mode)
+                        if (onToggleDesktopSplit != null) {
+                            IconButton(onClick = onToggleDesktopSplit) {
+                                Icon(
+                                    imageVector = Icons.Outlined.VerticalSplit,
+                                    contentDescription = if (isDesktopSplit) "Exit Desktop Split Mode" else "Enter Desktop Split Mode",
+                                    tint = if (isDesktopSplit) ClaudeTerracotta else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         // Browser, Terminal and the IDE are in the floating switcher (always on)
                         if (isInFloatingWindow) {
                             IconButton(onClick = onMinimizeWindow) {
@@ -3676,6 +3688,14 @@ fun ChatScreen(
                     TermuxDaemonManager.openOrSelectTab(path, File(path).name, content)
                     onNavigateToIde()
                 }
+            },
+            onProceedPlan = { prompt ->
+                activeMarkdownDoc = null
+                viewModel.sendMessage(prompt)
+            },
+            onProvideFeedback = { feedback ->
+                activeMarkdownDoc = null
+                viewModel.sendMessage(feedback)
             }
         )
     }
@@ -3693,6 +3713,14 @@ fun ChatScreen(
                     TermuxDaemonManager.openOrSelectTab(path, File(path).name, content)
                     onNavigateToIde()
                 }
+            },
+            onProceedPlan = { prompt ->
+                viewModel.dismissIncomingMarkdownPreview()
+                viewModel.sendMessage(prompt)
+            },
+            onProvideFeedback = { feedback ->
+                viewModel.dismissIncomingMarkdownPreview()
+                viewModel.sendMessage(feedback)
             }
         )
     }
@@ -3867,7 +3895,11 @@ fun ChatScreen(
                 ) {
                     ArtifactsDrawerContent(
                         artifacts = artifacts,
-                        onClose = { showArtifactsDrawer = false }
+                        onClose = { showArtifactsDrawer = false },
+                        onProceedPlan = { prompt ->
+                            showArtifactsDrawer = false
+                            viewModel.sendMessage(prompt)
+                        }
                     )
                 }
             }

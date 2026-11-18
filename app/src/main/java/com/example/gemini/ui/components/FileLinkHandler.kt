@@ -267,12 +267,31 @@ fun MarkdownDocViewerModal(
     filePath: String,
     content: String,
     onDismiss: () -> Unit,
-    onOpenInIde: (path: String) -> Unit
+    onOpenInIde: (path: String) -> Unit,
+    onProceedPlan: ((prompt: String) -> Unit)? = null,
+    onProvideFeedback: ((feedback: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val fileName = remember(filePath) { File(filePath).name }
     val blocks = remember(content) { parseMarkdownBlocks(content) }
     val listState = rememberLazyListState()
+
+    var showFeedbackDialog by remember { mutableStateOf(false) }
+    var feedbackText by remember { mutableStateOf("") }
+
+    val isPlanDoc = remember(filePath, content) {
+        filePath.contains("plan", ignoreCase = true) ||
+        content.contains("Implementation Plan", ignoreCase = true) ||
+        content.contains("ArtifactMetadata", ignoreCase = true) ||
+        content.contains("- [ ]") || content.contains("- [x]")
+    }
+    val completedTasks = remember(content) {
+        Regex("""-\s*\[x\]""", RegexOption.IGNORE_CASE).findAll(content).count()
+    }
+    val pendingTasks = remember(content) {
+        Regex("""-\s*\[ \]""").findAll(content).count()
+    }
+    val totalTasks = completedTasks + pendingTasks
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -339,13 +358,64 @@ fun MarkdownDocViewerModal(
                     )
                 )
 
+                // Plan Progress Banner (If document contains task checklist or plan)
+                if (totalTasks > 0 || isPlanDoc) {
+                    Surface(
+                        color = ClaudeTerracotta.copy(alpha = 0.08f),
+                        border = BorderStroke(0.5.dp, ClaudeTerracotta.copy(alpha = 0.25f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = ClaudeTerracotta,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "EXECUTION PLAN & ARTIFACT",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ClaudeTerracotta
+                                    )
+                                }
+                                if (totalTasks > 0) {
+                                    Text(
+                                        text = "$completedTasks / $totalTasks Tasks (${completedTasks * 100 / totalTasks}%)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (totalTasks > 0) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = { completedTasks.toFloat() / totalTasks.toFloat() },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                    color = ClaudeTerracotta,
+                                    trackColor = ClaudeTerracotta.copy(alpha = 0.2f)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 // Rendered Markdown Content
                 LazyColumn(
                     state = listState,
                     modifier = Modifier
-                        .fillMaxSize()
+                        .fillMaxWidth()
+                        .weight(1f)
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     itemsIndexed(blocks) { idx, block ->
@@ -355,8 +425,93 @@ fun MarkdownDocViewerModal(
                         )
                     }
                 }
+
+                // Interactive Action Dock for Execution Plans
+                if (isPlanDoc || onProceedPlan != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        border = BorderStroke(0.8.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = {
+                                    val prompt = "Proceed with the implementation plan in ${File(filePath).name}. Execute the next steps sequentially and verify."
+                                    onProceedPlan?.invoke(prompt)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ClaudeTerracotta),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Proceed with Plan", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { showFeedbackDialog = true },
+                                modifier = Modifier.weight(0.9f)
+                            ) {
+                                Icon(Icons.Outlined.RateReview, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Give Feedback", fontSize = 12.5.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    if (showFeedbackDialog) {
+        AlertDialog(
+            onDismissRequest = { showFeedbackDialog = false },
+            title = {
+                Text(
+                    text = "Provide Feedback on Plan",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "Specify any adjustments or instructions for the agent before proceeding:",
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = feedbackText,
+                        onValueChange = { feedbackText = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
+                        placeholder = { Text("E.g. Also add unit tests and ensure backward compatibility...") }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val finalMsg = "Feedback on ${File(filePath).name}:\n$feedbackText\nPlease adjust the plan or proceed taking this feedback into account."
+                        showFeedbackDialog = false
+                        onProvideFeedback?.invoke(finalMsg)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ClaudeTerracotta)
+                ) {
+                    Text("Send to Agent")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFeedbackDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
