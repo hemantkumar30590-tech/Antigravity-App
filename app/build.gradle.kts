@@ -95,7 +95,7 @@ android {
     }
 
     base {
-        archivesName.set("antiGem")
+        archivesName.set("AntigravityApp")
     }
 
     compileOptions {
